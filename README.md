@@ -2,7 +2,7 @@
 
 A simple terminal-based HTTP service health checker built with Go and Bubble Tea. Monitor your web services with real-time status updates and visual health indicators.
 
-![Goardian](portrait.png)
+![goardian](portrait.png)
 
 ## Features
 
