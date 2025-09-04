@@ -27,7 +27,7 @@ A simple terminal-based HTTP service health checker built with Go and Bubble Tea
 1. Clone the repository:
 ```bash
 git clone https://github.com/DigitalArtifactory/goardian.git
-cd goardian/goardian
+cd goardian
 ```
 
 2. Install dependencies:
