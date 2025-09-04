@@ -76,7 +76,7 @@ func (m model) View() string {
 
 	if m.state == nameView {
 		s += faint.Render("enter = save | esc = cancel")
-	} else {
+	} else if m.state != listView {
 		s += faint.Render("enter = continue | esc = go back")
 	}
 
