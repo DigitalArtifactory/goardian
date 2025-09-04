@@ -23,7 +23,6 @@ func (m model) View() string {
 
 	if m.state == nameView {
 		s += "Service name: \n\n"
-		m.textinput.Placeholder = "Service name"
 		s += m.textinput.View() + "\n\n"
 		s += helperStyle.Render("Enter service name") + "\n\n"
 	}
