@@ -59,6 +59,17 @@ func (s *Store) Init() error {
 	if _, err := s.conn.Exec(createTableStmt); err != nil {
 		return err
 	}
+	createHistoryTableStmt := `CREATE TABLE IF NOT EXISTS history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		service_id TEXT NOT NULL,
+		status BOOLEAN NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(service_id) REFERENCES services(id)
+	);`
+
+	if _, err := s.conn.Exec(createHistoryTableStmt); err != nil {
+		return err
+	}
 
 	// Restore data from backup if it exists
 	if err := s.restoreFromBackup(); err != nil {
@@ -80,6 +91,23 @@ func (s *Store) GetServices() ([]Service, error) {
 		service := Service{}
 		rows.Scan(&service.ID, &service.Name, &service.Method, &service.Endpoint, &service.Payload, &service.RequestDelay, &service.JSONProperty, &service.ExpectedValue, &service.PreferredStatus, &service.InsecureSkipVerify)
 		services = append(services, service)
+		for i := range services {
+			historyRows, err := s.conn.Query(
+				"SELECT status FROM history WHERE service_id = ? ORDER BY timestamp DESC LIMIT 20",
+				services[i].ID,
+			)
+			if err == nil {
+				defer historyRows.Close()
+				services[i].StatusHistory = []bool{}
+				for historyRows.Next() {
+					var status bool
+					if err := historyRows.Scan(&status); err == nil {
+						services[i].StatusHistory = append(services[i].StatusHistory, status)
+					}
+				}
+			}
+		}
+
 	}
 
 	return services, nil
@@ -103,6 +131,22 @@ func (s *Store) SaveService(service Service) error {
 	return nil
 }
 
+func (s *Store) SaveHistory(service Service, status bool) error {
+	insertQuery := `INSERT INTO history (service_id, status) VALUES (?, ?);`
+	if _, err := s.conn.Exec(insertQuery, service.ID, status); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) DeleteAllHistory(service Service) error {
+	deleteQuery := `DELETE FROM history WHERE service_id = ?;`
+	if _, err := s.conn.Exec(deleteQuery, service.ID); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Store) DeleteService(service Service) error {
 	if service.ID == "" {
 		// if not exists throw an error
@@ -110,9 +154,14 @@ func (s *Store) DeleteService(service Service) error {
 		return err
 	}
 
+	// Delete service
 	deleteQuery := `DELETE FROM services WHERE id = ?;`
-
 	if _, err := s.conn.Exec(deleteQuery, service.ID); err != nil {
+		return err
+	}
+
+	// Delete history
+	if err := s.DeleteAllHistory(service); err != nil {
 		return err
 	}
 
@@ -183,6 +232,27 @@ func (s *Store) restoreFromBackup() error {
 		// Insert service into new database
 		if err := s.SaveService(service); err != nil {
 			return fmt.Errorf("failed to restore service %s: %w", service.Name, err)
+		}
+	}
+
+	// Restore history from backup
+	historyRows, err := backupConn.Query("SELECT service_id, status, timestamp FROM history")
+	if err == nil {
+		defer historyRows.Close()
+		for historyRows.Next() {
+			var serviceID string
+			var status bool
+			var timestamp string
+			if err := historyRows.Scan(&serviceID, &status, &timestamp); err != nil {
+				return fmt.Errorf("failed to scan history from backup: %w", err)
+			}
+			_, err := s.conn.Exec(
+				`INSERT INTO history (service_id, status, timestamp) VALUES (?, ?, ?)`,
+				serviceID, status, timestamp,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to restore history for service %s: %w", serviceID, err)
+			}
 		}
 	}
 

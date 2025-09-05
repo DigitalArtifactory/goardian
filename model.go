@@ -42,7 +42,7 @@ type model struct {
 }
 
 // type tickMsg time.Time
-type dataMsg *[]Service
+type dataMsg []Service
 
 func NewModel(store *Store) model {
 	services, err := store.GetServices()
@@ -72,42 +72,35 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		m.pulseSpinner.Tick,
-		refreshServices(m),
+		func() tea.Msg {
+			return dataMsg(m.services)
+		},
 	)
 }
 
-func getStatuses(services []Service) []Service {
-	for i := range services {
-		status := getStatus(services[i])
-
-		// Add current status value to StatusHistory
-		limit := 20
-		lenght := len(services[i].StatusHistory) + 1
-		if lenght >= limit {
-			services[i].StatusHistory = services[i].StatusHistory[:limit-1]
-		}
-		services[i].StatusHistory = append([]bool{status}, services[i].StatusHistory...)
-
-		// Create status bar info
-		statusBar := "- "
-		if status {
-			statusBar += lipgloss.NewStyle().Background(lipgloss.Color("2")).Padding(0, 1).Render("Online")
-		} else {
-			statusBar += lipgloss.NewStyle().Background(lipgloss.Color("1")).Padding(0, 1).Render("Offline")
-		}
-
-		// Health bar
-		for _, v := range services[i].StatusHistory {
-			if v {
-				statusBar += " " + lipgloss.NewStyle().Background(lipgloss.Color("2")).Render(" ")
-			} else {
-				statusBar += " " + lipgloss.NewStyle().Background(lipgloss.Color("1")).Render(" ")
-			}
-		}
-
-		services[i].LastStatusInfo = statusBar
+func getUpdatedServices(m model) ([]Service, error) {
+	services, err := m.store.GetServices()
+	if err != nil {
+		return nil, err
 	}
-	return services
+	for i := range services {
+		s := services[i]
+		status := getStatus(s)
+
+		// Prune history older than 1 month
+		now := time.Now()
+		oneMonthAgo := now.AddDate(0, -1, 0)
+		_, err := m.store.conn.Exec(
+			`DELETE FROM history WHERE service_id = ? AND timestamp < ?`,
+			s.ID, oneMonthAgo.Format("2006-01-02 15:04:05"),
+		)
+		if err != nil {
+			log.Printf("Failed to prune history for service %s: %v", s.ID, err)
+		}
+
+		m.store.SaveHistory(s, status)
+	}
+	return services, nil
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -121,10 +114,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case dataMsg:
-		m.services = []Service(*msg)
+		m.services = []Service(msg)
 		return m, tea.Tick(5*time.Second, func(_ time.Time) tea.Msg {
-			m.services = getStatuses(m.services)
-			return dataMsg(&m.services)
+			m.services = refreshServices(m)
+			return dataMsg(m.services)
 		})
 	case tea.KeyMsg:
 		key := msg.String()
@@ -144,7 +137,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.listIndex >= len(m.services)-1 && m.listIndex > 0 {
 					m.listIndex--
 				}
-				return m, refreshServices(m)
+				return m, func() tea.Msg {
+					m.services = refreshServices(m)
+					return dataMsg(m.services)
+				}
 			case "up", "k":
 				if m.listIndex > 0 {
 					m.listIndex--
@@ -159,9 +155,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textinput.SetValue(m.currService.Name)
 				m.textinput.Focus()
 				m.textinput.CursorEnd()
-			case "r":
-				m.services[m.listIndex].StatusHistory = m.services[m.listIndex].StatusHistory[:0]
-				return m, refreshServices(m)
+			case "ctrl+r":
+				s := &m.services[m.listIndex]
+				s.LastStatusInfo = ""
+				m.store.DeleteAllHistory(*s)
 			}
 
 		case nameView:
@@ -312,7 +309,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currService.InsecureSkipVerify = lower
 				m.store.SaveService(m.currService)
 				m.state = listView
-				return m, refreshServices(m)
+				return m, func() tea.Msg {
+					m.services = refreshServices(m)
+					return dataMsg(m.services)
+				}
 			case "esc":
 				m.state = preferredStatusView
 				m.SetFieldValue("PreferredStatus")
@@ -328,15 +328,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func refreshServices(m model) tea.Cmd {
-	services, err := m.store.GetServices()
+func refreshServices(m model) []Service {
+	services, err := getUpdatedServices(m)
 	if err != nil {
 		log.Fatalf("Unable to get services: %v", err)
 	}
-	services = getStatuses(services)
-	return func() tea.Msg {
-		return dataMsg(&services)
+
+	for i := range services {
+		s := services[i]
+		if len(s.StatusHistory) == 0 {
+			continue
+		}
+
+		limit := 20
+
+		// Add current status value to StatusHistory
+		lenght := len(s.StatusHistory) + 1
+		if lenght >= limit {
+			s.StatusHistory = s.StatusHistory[:limit-1]
+		}
+
+		// Create status bar info
+		statusBar := "- "
+		if s.StatusHistory[len(s.StatusHistory)-1] {
+			statusBar += lipgloss.NewStyle().Background(lipgloss.Color("2")).Padding(0, 1).Render("Online")
+		} else {
+			statusBar += lipgloss.NewStyle().Background(lipgloss.Color("1")).Padding(0, 1).Render("Offline")
+		}
+
+		// Health bar
+		for _, v := range s.StatusHistory {
+			if v {
+				statusBar += " " + lipgloss.NewStyle().Background(lipgloss.Color("2")).Render(" ")
+			} else {
+				statusBar += " " + lipgloss.NewStyle().Background(lipgloss.Color("1")).Render(" ")
+			}
+		}
+
+		services[i].LastStatusInfo = statusBar
 	}
+
+	return services
 }
 
 func (m *model) SetFieldValue(p string) {
@@ -382,9 +414,14 @@ func getStatus(s Service) bool {
 		resp, err = client.Get(s.Endpoint)
 		status = err == nil
 	}
+
+	if resp == nil {
+		return false
+	}
+
 	defer resp.Body.Close()
 
-	if s.JSONProperty != "" && resp != nil && err == nil {
+	if s.JSONProperty != "" {
 		var jsonData map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&jsonData); err == nil {
 			keys := strings.Split(s.JSONProperty, ".")

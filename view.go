@@ -102,7 +102,7 @@ func (m model) View() string {
 				s += o.LastStatusInfo + " " + m.pulseSpinner.View() + "\n\n"
 			}
 		}
-		s += faint.Render("n - new service | q - quit | d - delete | r - restart history")
+		s += faint.Render("n - new service | q - quit | d - delete | ctrl + r - restart history")
 	}
 
 	s += "\n\n" + helperStyle.Render("goardian v1.0.0 by DavidArtifacts")
