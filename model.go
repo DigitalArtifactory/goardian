@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"log"
@@ -25,6 +24,7 @@ const (
 	payloadView
 	requestDelayView
 	jsonPropertyView
+	expectedValueView
 	preferredStatusView
 	insecureSkipVerifyView
 )
@@ -42,7 +42,7 @@ type model struct {
 }
 
 // type tickMsg time.Time
-type dataMsg []Service
+type dataMsg *[]Service
 
 func NewModel(store *Store) model {
 	services, err := store.GetServices()
@@ -72,17 +72,8 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		m.pulseSpinner.Tick,
-		updateServices(m.services),
+		refreshServices(m),
 	)
-}
-
-func updateServices(services []Service) tea.Cmd {
-	return func() tea.Msg {
-		for {
-			services := getStatuses(services)
-			return dataMsg(services)
-		}
-	}
 }
 
 func getStatuses(services []Service) []Service {
@@ -130,10 +121,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case dataMsg:
-		m.services = []Service(msg)
+		m.services = []Service(*msg)
 		return m, tea.Tick(5*time.Second, func(_ time.Time) tea.Msg {
 			m.services = getStatuses(m.services)
-			return dataMsg(m.services)
+			return dataMsg(&m.services)
 		})
 	case tea.KeyMsg:
 		key := msg.String()
@@ -149,8 +140,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = nameView
 			case "d":
 				m.store.DeleteService(m.services[m.listIndex])
-				m.services, _ = m.store.GetServices()
 				m.state = listView
+				if m.listIndex >= len(m.services)-1 && m.listIndex > 0 {
+					m.listIndex--
+				}
+				return m, refreshServices(m)
 			case "up", "k":
 				if m.listIndex > 0 {
 					m.listIndex--
@@ -166,10 +160,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textinput.Focus()
 				m.textinput.CursorEnd()
 			case "r":
-				m.services[m.listIndex].StatusHistory = m.currService.StatusHistory[:0]
-				go func() {
-					m.services = getStatuses(m.services)
-				}()
+				m.services[m.listIndex].StatusHistory = m.services[m.listIndex].StatusHistory[:0]
+				return m, refreshServices(m)
 			}
 
 		case nameView:
@@ -260,11 +252,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.errorMsg = ""
 				jsonProperty := strings.TrimSpace(m.textinput.Value())
 				m.currService.JSONProperty = jsonProperty
-				m.state = preferredStatusView
-				m.SetFieldValue("PreferredStatus")
+				if jsonProperty != "" {
+					m.state = expectedValueView
+					m.SetFieldValue("ExpectedValue")
+				} else {
+					m.state = preferredStatusView
+					m.SetFieldValue("PreferredStatus")
+				}
 			case "esc":
 				m.state = endpointView
 				m.SetFieldValue("Endpoint")
+			}
+
+		case expectedValueView:
+			switch key {
+			case "enter":
+				m.errorMsg = ""
+				expectedValue := strings.TrimSpace(m.textinput.Value())
+				m.currService.ExpectedValue = expectedValue
+				m.state = insecureSkipVerifyView
+				m.SetFieldValue("InsecureSkipVerify")
+			case "esc":
+				m.state = jsonPropertyView
+				m.SetFieldValue("JSONProperty")
 			}
 
 		case preferredStatusView:
@@ -301,13 +311,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.currService.InsecureSkipVerify = lower
 				m.store.SaveService(m.currService)
-				var err error
-				m.services, err = m.store.GetServices()
-				if err != nil {
-					log.Fatalf("Unable to get services: %v", err)
-				}
-
 				m.state = listView
+				return m, refreshServices(m)
 			case "esc":
 				m.state = preferredStatusView
 				m.SetFieldValue("PreferredStatus")
@@ -321,6 +326,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	}
 	return m, tea.Batch(cmds...)
+}
+
+func refreshServices(m model) tea.Cmd {
+	services, err := m.store.GetServices()
+	if err != nil {
+		log.Fatalf("Unable to get services: %v", err)
+	}
+	services = getStatuses(services)
+	return func() tea.Msg {
+		return dataMsg(&services)
+	}
 }
 
 func (m *model) SetFieldValue(p string) {
@@ -359,36 +375,46 @@ func getStatus(s Service) bool {
 	}
 	client := &http.Client{Transport: tr}
 
+	status := false
 	var resp *http.Response
 	var err error
 	if strings.ToUpper(strings.TrimSpace(s.Method)) == "GET" {
 		resp, err = client.Get(s.Endpoint)
-		if err != nil {
-			return false
-		}
-	} else {
-		body := struct {
-			Key string `json:"key"`
-		}{
-			Key: "value",
-		}
+		status = err == nil
+	}
+	defer resp.Body.Close()
 
-		out, err := json.Marshal(body)
-		if err != nil {
-			log.Fatal(err)
-		}
+	if s.JSONProperty != "" && resp != nil && err == nil {
+		var jsonData map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&jsonData); err == nil {
+			keys := strings.Split(s.JSONProperty, ".")
+			var v interface{} = jsonData
+			jsonPropertyExists := true
 
-		resp, err = client.Post(s.Endpoint, "application/json", bytes.NewBuffer(out))
-		if err != nil {
-			return false
+			for _, k := range keys {
+				m, ok := v.(map[string]interface{})
+				if !ok {
+					jsonPropertyExists = false
+					break
+				}
+				v, ok = m[k]
+				if !ok {
+					jsonPropertyExists = false
+					break
+				}
+			}
+
+			// Only set status to true if we successfully navigated through all keys
+			status = jsonPropertyExists && (v == s.ExpectedValue || s.ExpectedValue == "")
+		} else {
+			status = false
 		}
 	}
 
-	defer resp.Body.Close()
 	var preferredStatus int
 	preferredStatus, err = strconv.Atoi(s.PreferredStatus)
 	if err != nil {
 		preferredStatus = 200
 	}
-	return resp.StatusCode == int(preferredStatus)
+	return status && resp.StatusCode == int(preferredStatus)
 }

@@ -57,6 +57,12 @@ func (m model) View() string {
 		s += helperStyle.Render("Enter JSON property (my.property.key)") + "\n\n"
 	}
 
+	if m.state == expectedValueView {
+		s += "Expected Value: \n\n"
+		s += m.textinput.View() + "\n\n"
+		s += helperStyle.Render("Enter expected JSON Property value (blank for any value)") + "\n\n"
+	}
+
 	if m.state == preferredStatusView {
 		s += "Preferred Status: \n\n"
 		s += m.textinput.View() + "\n\n"
