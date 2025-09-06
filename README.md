@@ -137,6 +137,13 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 Created by **[DavidArtifacts](https://github.com/DavidArtifacts)** at [Digital Artifactory](https://github.com/DigitalArtifactory)
 
+### Donations
+Money is not the best reward—your time and collaboration are. However, if you'd like to support me [(the author)](https://github.com/DavidArtifacts), you can make a donation to keep me motivated and hydrated (with some coffee, of course) at: 
+
+<a href="https://www.buymeacoffee.com/davidartifacts" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 30px !important;width: 109px !important;" ></a>
+
+**Thank you!** ❤
+
 ---
 
 *Monitor your services with confidence using Goardian! 🛡️*
