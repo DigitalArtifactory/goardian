@@ -48,7 +48,7 @@ go run .
 - `n` - Create a new service
 - `Enter` - Edit selected service
 - `d` - Delete selected service
-- `r` - Restart status history for selected service
+- `ctrl+r` - Restart status history for selected service
 - `↑/k` - Move up in the list
 - `↓/j` - Move down in the list
 - `q` - Quit the application
