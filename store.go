@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type Service struct {
@@ -38,7 +38,7 @@ func (s *Store) Init() error {
 		return fmt.Errorf("failed to backup existing database: %w", err)
 	}
 
-	s.conn, err = sql.Open("sqlite3", "./goardian.db")
+	s.conn, err = sql.Open("sqlite", "./goardian.db")
 	if err != nil {
 		return err
 	}
@@ -205,7 +205,7 @@ func (s *Store) restoreFromBackup() error {
 	}
 
 	// Open backup database
-	backupConn, err := sql.Open("sqlite3", backupPath)
+	backupConn, err := sql.Open("sqlite", backupPath)
 	if err != nil {
 		return fmt.Errorf("failed to open backup database: %w", err)
 	}
