@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: write
-  
+
 jobs:
   build:
     name: Build binaries
@@ -30,25 +30,23 @@ jobs:
           mkdir -p dist
           GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o dist/goardian-${{ matrix.goos }}-${{ matrix.goarch }}
 
-      - name: Upload artifact
+      - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: all-binaries
           path: dist/*
+          if-no-files-found: error
+          retention-days: 1
 
   release:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        goos: [linux, windows, darwin]
-        goarch: [amd64, arm64]
     steps:
-      - name: Download artifacts
+      - name: Download all binaries
         uses: actions/download-artifact@v4
         with:
-          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: all-binaries
           path: dist
 
       - name: Create Release
