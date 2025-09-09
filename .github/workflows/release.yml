@@ -28,7 +28,11 @@ jobs:
       - name: Build
         run: |
           mkdir -p dist
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o dist/goardian-${{ matrix.goos }}-${{ matrix.goarch }}
+          ext=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            ext=".exe"
+          fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o dist/goardian-${{ matrix.goos }}-${{ matrix.goarch }}$ext
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
