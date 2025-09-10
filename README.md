@@ -98,7 +98,7 @@ Services are automatically saved to a local SQLite database (`goardian.db`) in t
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) - Terminal UI framework
 - [Bubbles](https://github.com/charmbracelet/bubbles) - Common UI components
 - [Lipgloss](https://github.com/charmbracelet/lipgloss) - Style definitions
-- [SQLite3](https://github.com/mattn/go-sqlite3) - Database driver
+- [SQLite](https://modernc.org/sqlite) - Database driver
 - [UUID](https://github.com/google/uuid) - UUID generation
 
 ## Development
